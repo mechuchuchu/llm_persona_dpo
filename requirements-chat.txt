@@ -1,0 +1,2 @@
+-r requirements-terminal.txt
+gradio>=4.44

@@ -39,3 +39,42 @@ length of 1024 tokens. Override them with `--help` options, such as
 The final adapter is saved to `outputs/qwen3.5-4b-dpo-lora/final`; the base
 model remains in `models/Qwen3.5-4B`. Intermediate epoch checkpoints are saved
 in the same output directory.
+
+## Test a LoRA adapter in a chat UI
+
+Install the chat dependencies into the PyTorch environment:
+
+```bash
+source /venv/main/bin/activate
+uv pip install -r requirements-chat.txt
+```
+
+After training, start the Gradio chat page:
+
+```bash
+python chat_lora.py
+```
+
+It loads the local Qwen3.5-4B base model in 4-bit NF4 with bitsandbytes, then
+attaches `outputs/qwen3.5-4b-dpo-lora/final`. The system prompt defaults to
+`generation_prompts/chosen_system.txt` and can be edited in the UI. You can
+override the model, adapter, prompt file, or local bind address at startup:
+
+```bash
+python chat_lora.py --model models/Qwen3.5-4B --adapter outputs/qwen3.5-4b-dpo-lora/final
+```
+
+To compare against the base model without an adapter, pass `--adapter ''`.
+The default server binds to `127.0.0.1:7860`; from your own computer, reach it
+privately with SSH local forwarding (`-L 7860:127.0.0.1:7860`) and open
+`http://localhost:7860`.
+
+For a terminal-only chat, use the same model, adapter, and system-prompt defaults:
+
+```bash
+uv pip install -r requirements-terminal.txt
+python chat_lora_terminal.py
+```
+
+Enter `/clear` to reset the conversation, or `/exit` to quit. The terminal
+version uses the shared model loader and does not require Gradio.
