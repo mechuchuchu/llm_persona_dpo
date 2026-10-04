@@ -77,4 +77,5 @@ python chat_lora_terminal.py
 ```
 
 Enter `/clear` to reset the conversation, or `/exit` to quit. The terminal
-version uses the shared model loader and does not require Gradio.
+version streams generated text as it arrives, hides Python and model-library
+warnings, and does not require Gradio. Errors still appear normally.

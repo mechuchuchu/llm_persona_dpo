@@ -1,10 +1,16 @@
 """Shared bitsandbytes and PEFT helpers for the LoRA chat interfaces."""
 
 from pathlib import Path
+from threading import Thread
 
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    TextIteratorStreamer,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -52,14 +58,14 @@ def load_system_prompt(path: str) -> str:
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
-def generate_reply(
+def _prepare_generation(
     model,
     tokenizer,
     messages,
     max_input_length: int,
     temperature: float,
     max_new_tokens: int,
-) -> str:
+) -> dict:
     original_messages = messages
     messages = list(messages)
     while True:
@@ -86,8 +92,6 @@ def generate_reply(
         max_length=max_input_length,
     )
     encoded = {key: value.to(model.device) for key, value in encoded.items()}
-    prompt_length = encoded["input_ids"].shape[-1]
-
     generation = {
         **encoded,
         "max_new_tokens": int(max_new_tokens),
@@ -99,7 +103,62 @@ def generate_reply(
         generation["temperature"] = float(temperature)
         generation["top_p"] = 0.9
 
+    return generation
+
+
+def generate_reply(
+    model,
+    tokenizer,
+    messages,
+    max_input_length: int,
+    temperature: float,
+    max_new_tokens: int,
+) -> str:
+    generation = _prepare_generation(
+        model, tokenizer, messages, max_input_length, temperature, max_new_tokens
+    )
     with torch.inference_mode():
         output = model.generate(**generation)
+    prompt_length = generation["input_ids"].shape[-1]
     answer = tokenizer.decode(output[0, prompt_length:], skip_special_tokens=True).strip()
     return answer or "(빈 응답)"
+
+
+def stream_reply(
+    model,
+    tokenizer,
+    messages,
+    max_input_length: int,
+    temperature: float,
+    max_new_tokens: int,
+):
+    generation = _prepare_generation(
+        model, tokenizer, messages, max_input_length, temperature, max_new_tokens
+    )
+    streamer = TextIteratorStreamer(
+        tokenizer,
+        skip_prompt=True,
+        skip_special_tokens=True,
+    )
+    generation["streamer"] = streamer
+    errors = []
+
+    def run_generation():
+        try:
+            with torch.inference_mode():
+                model.generate(**generation)
+        except Exception as exc:
+            errors.append(exc)
+            streamer.end()
+
+    worker = Thread(target=run_generation, daemon=True)
+    worker.start()
+    try:
+        for fragment in streamer:
+            if fragment:
+                yield fragment
+    finally:
+        worker.join()
+
+    if errors:
+        raise errors[0]

@@ -2,8 +2,20 @@
 """Chat with a 4-bit bitsandbytes model and an optional PEFT LoRA adapter."""
 
 import argparse
+import logging
+import os
+import warnings
 
-from lora_runtime import ROOT, generate_reply, load_model, load_system_prompt
+warnings.filterwarnings("ignore")
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+os.environ["HF_HUB_VERBOSITY"] = "error"
+
+from lora_runtime import ROOT, load_model, load_system_prompt, stream_reply
+from transformers.utils import logging as transformers_logging
+
+transformers_logging.set_verbosity_error()
+for logger_name in ("huggingface_hub", "peft", "bitsandbytes"):
+    logging.getLogger(logger_name).setLevel(logging.ERROR)
 
 
 def parse_args():
@@ -55,17 +67,21 @@ def main():
             continue
 
         messages.append({"role": "user", "content": message})
-        print("응답 생성 중...", flush=True)
-        answer = generate_reply(
+        print("\nAssistant: ", end="", flush=True)
+        answer_parts = []
+        for fragment in stream_reply(
             model,
             tokenizer,
             messages,
             args.max_input_length,
             args.temperature,
             args.max_new_tokens,
-        )
+        ):
+            print(fragment, end="", flush=True)
+            answer_parts.append(fragment)
+        answer = "".join(answer_parts).strip() or "(빈 응답)"
         messages.append({"role": "assistant", "content": answer})
-        print(f"\nAssistant: {answer}")
+        print()
 
 
 if __name__ == "__main__":
