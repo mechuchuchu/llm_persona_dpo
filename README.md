@@ -40,7 +40,16 @@ The final adapter is saved to `outputs/qwen3.5-4b-dpo-lora/final`; the base
 model remains in `models/Qwen3.5-4B`. Intermediate epoch checkpoints are saved
 in the same output directory.
 
-## Test a LoRA adapter in a chat UI
+## Run a LoRA chat
+
+The published default adapter is
+[`Ilikemechuri/llm_persona_dpo_nvidia_korea_fa265b48f66e4c70bb1b0387aba49b46`](https://huggingface.co/Ilikemechuri/llm_persona_dpo_nvidia_korea_fa265b48f66e4c70bb1b0387aba49b46).
+Download it into the path used by both chat scripts, along with the base model:
+
+```bash
+hf download Qwen/Qwen3.5-4B --local-dir models/Qwen3.5-4B
+hf download Ilikemechuri/llm_persona_dpo_nvidia_korea_fa265b48f66e4c70bb1b0387aba49b46 --local-dir outputs/qwen3.5-4b-dpo-lora/final
+```
 
 Install the chat dependencies into the PyTorch environment:
 
@@ -49,7 +58,7 @@ source /venv/main/bin/activate
 uv pip install -r requirements-chat.txt
 ```
 
-After training, start the Gradio chat page:
+Start the Gradio chat page:
 
 ```bash
 python chat_lora.py
@@ -73,7 +82,7 @@ For a terminal-only chat, use the same model, adapter, and system-prompt default
 
 ```bash
 uv pip install -r requirements-terminal.txt
-python chat_lora_terminal.py
+python chat_lora_terminal.py --model models/Qwen3.5-4B --adapter outputs/qwen3.5-4b-dpo-lora/final
 ```
 
 Enter `/clear` to reset the conversation, or `/exit` to quit. The terminal
