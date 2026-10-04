@@ -13,11 +13,24 @@ defaults to the downloaded Qwen3.5-2B; the rejected model defaults to
 prompts are sent to vLLM per call; `--num-prompts` controls how many pairs are
 generated. Each input user prompt produces one chosen/rejected pair.
 
-For custom JSONL prompts, use one object per line with a non-empty `user` or
-`prompt` field. Generated rows can also be written as JSONL, with `user`,
-`chosen`, and `rejected` fields on each line. `--output-format jsonl` selects
-that format; it is also inferred when `--output` ends in `.jsonl`. Without an
-explicit output path, JSONL output goes to `data/user_answer_pairs.jsonl`.
+For custom JSONL prompts, put one JSON object on each line (do not wrap the
+records in a JSON array). Each object needs a non-empty string in either
+`user` or `prompt`:
+
+```jsonl
+{"user":"Sort these words: pear, apple"}
+{"prompt":"Explain why the sky looks blue."}
+```
+
+Generated JSONL has one object per prompt, with the prompt and both responses:
+
+```jsonl
+{"user":"Sort these words: pear, apple","chosen":"apple, pear","rejected":"pear, apple"}
+```
+
+`--output-format jsonl` selects that output format; it is also inferred when
+`--output` ends in `.jsonl`. Without an explicit output path, JSONL output goes
+to `data/user_answer_pairs.jsonl`.
 
 ```bash
 python generate_preference_pairs.py --users data/custom_prompts.jsonl --output-format jsonl --output data/custom_answer_pairs.jsonl
