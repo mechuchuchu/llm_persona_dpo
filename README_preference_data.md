@@ -31,6 +31,16 @@ Streaming input is shuffled with a 10,000-row buffer by default; change that
 with `--dataset-shuffle-buffer`. With file input, `--num-prompts` selects the
 first N prompts, and it cannot exceed the number available in that file.
 
+If vLLM exits with `Cannot re-initialize CUDA in forked subprocess`, start it
+with the `spawn` multiprocessing method. Set `VLLM_WORKER_MULTIPROC_METHOD`
+before launching the script:
+
+```bash
+VLLM_WORKER_MULTIPROC_METHOD=spawn uv run generate_preference_pairs.py --dataset allenai/Dolci-Instruct-SFT-No-Tools --split train --num-prompts 1000 --batch-size 4
+```
+
+For a regular Python environment, replace `uv run` with `python`.
+
 `shuffle_sys_prompt.py` reads every non-empty `.txt` file recursively from the
 specified directory. It duplicates each source pair once per system prompt,
 shuffles the rows with a reproducible seed, and writes
