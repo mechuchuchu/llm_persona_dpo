@@ -2,6 +2,7 @@
 """Balance system prompts over generated pairs and write preference parquet."""
 
 import argparse
+import json
 import random
 from pathlib import Path
 
@@ -17,7 +18,7 @@ DEFAULT_OUTPUT = ROOT / "data" / "shuffle_sys_prompt.parquet"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pairs", type=Path, default=DEFAULT_PAIRS,
-                        help="Parquet with user, chosen, and rejected columns")
+                        help="Parquet or JSONL with user, chosen, and rejected fields")
     parser.add_argument("--system-prompts-dir", type=Path, required=True,
                         help="Directory containing system prompt .txt files (searched recursively)")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -37,15 +38,42 @@ def read_system_prompts(directory: Path) -> list[tuple[str, str]]:
     return prompts
 
 
+def read_pairs(path: Path) -> list[dict[str, str]]:
+    if path.suffix.lower() == ".jsonl":
+        pairs = []
+        with path.open(encoding="utf-8") as source:
+            for line_number, line in enumerate(source, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as error:
+                    raise ValueError(f"Invalid JSON on line {line_number} of {path}: {error}") from error
+                if not isinstance(row, dict):
+                    raise ValueError(f"Line {line_number} of {path} must be a JSON object.")
+                pairs.append(row)
+        return pairs
+
+    if path.suffix.lower() == ".parquet":
+        return pq.read_table(path, columns=["user", "chosen", "rejected"]).to_pylist()
+
+    raise ValueError(f"Pairs input must be a .parquet or .jsonl file: {path}")
+
+
 def main() -> None:
     args = parse_args()
-    table = pq.read_table(args.pairs, columns=["user", "chosen", "rejected"])
-    pairs = table.to_pylist()
+    pairs = read_pairs(args.pairs)
     if not pairs:
         raise ValueError(f"No preference pairs found in {args.pairs}")
-    if any(not row["user"] or row["chosen"] is None or row["rejected"] is None
-           for row in pairs):
-        raise ValueError("Input pairs contain an empty user prompt or a missing response.")
+    required_fields = ("user", "chosen", "rejected")
+    for row_number, row in enumerate(pairs, start=1):
+        if any(not isinstance(row.get(field), str) for field in required_fields):
+            raise ValueError(
+                f"Preference pair {row_number} must contain string fields: "
+                "'user', 'chosen', and 'rejected'."
+            )
+        if not row["user"].strip():
+            raise ValueError(f"Preference pair {row_number} has an empty 'user' prompt.")
 
     prompts = read_system_prompts(args.system_prompts_dir)
     rows = []

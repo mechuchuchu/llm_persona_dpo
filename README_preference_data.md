@@ -74,8 +74,16 @@ VLLM_WORKER_MULTIPROC_METHOD=spawn uv run generate_preference_pairs.py --dataset
 For a regular Python environment, replace `uv run` with `python`.
 
 `shuffle_sys_prompt.py` reads every non-empty `.txt` file recursively from the
-specified directory. It duplicates each source pair once per system prompt,
-shuffles the rows with a reproducible seed, and writes
+specified directory. Its `--pairs` input can be either Parquet or JSONL. JSONL
+must contain one object per line with string fields `user`, `chosen`, and
+`rejected`, for example:
+
+```jsonl
+{"user":"Sort these words: pear, apple","chosen":"apple, pear","rejected":"pear, apple"}
+```
+
+The script duplicates each source pair once per system prompt, shuffles the
+rows with a reproducible seed, and writes
 `data/shuffle_sys_prompt.parquet`. The output columns are `system`, `user`,
 `chosen`, `rejected`, and `system_prompt_file`. The final system and user prompt
 occur once per row and are shared by the chosen and rejected responses. These
@@ -83,6 +91,12 @@ shuffled prompts are added after response generation.
 
 ```bash
 python shuffle_sys_prompt.py --pairs data/user_answer_pairs.parquet --system-prompts-dir /path/to/system_prompts --output data/shuffle_sys_prompt.parquet --seed 42
+```
+
+To use JSONL preference pairs as input and still produce the final Parquet:
+
+```bash
+python shuffle_sys_prompt.py --pairs data/user_answer_pairs.jsonl --system-prompts-dir /path/to/system_prompts --output data/shuffle_sys_prompt.parquet --seed 42
 ```
 
 Each system prompt appears exactly once per source pair, so prompt proportions
