@@ -16,24 +16,36 @@ from transformers import (
 ROOT = Path(__file__).resolve().parent
 
 
-def load_model(model_name_or_path: str, adapter_path: str):
-    if not torch.cuda.is_available():
-        raise RuntimeError("A CUDA GPU is required for 4-bit bitsandbytes loading.")
+def load_model(model_name_or_path: str, adapter_path: str, quantization_level: str = "4bit"):
+    if quantization_level not in {"4bit", "8bit", "none"}:
+        raise ValueError("quantization_level must be one of: 4bit, 8bit, none")
+    if quantization_level != "none" and not torch.cuda.is_available():
+        raise RuntimeError("A CUDA GPU is required for bitsandbytes quantization.")
 
-    compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    quantization = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=compute_dtype,
-    )
+    if torch.cuda.is_available():
+        compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    else:
+        compute_dtype = torch.float32
+
+    model_kwargs = {
+        "device_map": "auto",
+        "dtype": compute_dtype,
+    }
+    if quantization_level == "4bit":
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=compute_dtype,
+        )
+    elif quantization_level == "8bit":
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
     tokenizer.truncation_side = "left"
     model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
-        quantization_config=quantization,
-        device_map="auto",
-        dtype=compute_dtype,
+        **model_kwargs,
     )
 
     if adapter_path:

@@ -85,6 +85,15 @@ uv pip install -r requirements-terminal.txt
 python chat_lora_terminal.py --model models/Qwen3.5-4B --adapter outputs/qwen3.5-4b-dpo-lora/final
 ```
 
+Choose the base-model quantization level with `--quantization`. The default is
+4-bit NF4; 8-bit uses bitsandbytes 8-bit loading, and `none` loads the model
+without quantization (using bf16/fp16 on a supported GPU, otherwise fp32):
+
+```bash
+python chat_lora_terminal.py --quantization 8bit
+python chat_lora_terminal.py --quantization none
+```
+
 Enter `/clear` to reset the conversation, or `/exit` to quit. The terminal
 version streams generated text as it arrives, hides Python and model-library
 warnings, and does not require Gradio. Errors still appear normally.

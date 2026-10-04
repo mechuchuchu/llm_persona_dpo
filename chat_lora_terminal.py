@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chat with a 4-bit bitsandbytes model and an optional PEFT LoRA adapter."""
+"""Chat with a quantized model and an optional PEFT LoRA adapter."""
 
 import argparse
 import logging
@@ -34,19 +34,27 @@ def parse_args():
     parser.add_argument("--max-input-length", type=int, default=4096)
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument(
+        "--quantization",
+        choices=("4bit", "8bit", "none"),
+        default="4bit",
+        help="Model quantization level: 4bit (NF4), 8bit, or none (no quantization).",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    model, tokenizer = load_model(args.model, args.adapter)
+    model, tokenizer = load_model(args.model, args.adapter, args.quantization)
     messages = []
     system_prompt = load_system_prompt(args.system_prompt)
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
 
     print(f"모델: {args.model}")
-    print(f"LoRA: {args.adapter or '사용 안 함'} (4-bit bitsandbytes)")
+    print(f"LoRA: {args.adapter or '사용 안 함'}")
+    quantization_label = {"4bit": "4-bit NF4", "8bit": "8-bit", "none": "비양자화"}[args.quantization]
+    print(f"양자화: {quantization_label}")
     print("대화 시작. /clear 는 대화 초기화, /exit 또는 /quit 은 종료입니다.")
 
     while True:
