@@ -21,3 +21,21 @@ For paired preference generation with separate system prompts for each model, fo
 balanced system-prompt shuffling into Parquet, see
 [`README_preference_data.md`](README_preference_data.md). Those scripts are
 prepared separately and have not been run.
+
+## DPO fine-tuning with Qwen3.5-4B and LoRA
+
+Download the base model and train on `data/custom_answer_pairs_9b.jsonl`:
+
+```bash
+hf download Qwen/Qwen3.5-4B --local-dir models/Qwen3.5-4B
+python train_dpo_lora.py
+```
+
+The trainer reads JSONL rows with non-empty `user`, `chosen`, and `rejected`
+strings. Defaults are 3 epochs, LoRA rank 16, bf16, and a maximum sequence
+length of 1024 tokens. Override them with `--help` options, such as
+`--epochs`, `--learning-rate`, or `--max-length`.
+
+The final adapter is saved to `outputs/qwen3.5-4b-dpo-lora/final`; the base
+model remains in `models/Qwen3.5-4B`. Intermediate epoch checkpoints are saved
+in the same output directory.

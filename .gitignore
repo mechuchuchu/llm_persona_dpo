@@ -1,5 +1,6 @@
 # Downloaded model weights and local Hugging Face cache
 /models/
+/outputs/
 /.hf_home/
 **/.cache/
 
