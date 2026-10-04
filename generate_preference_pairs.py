@@ -12,16 +12,27 @@ import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_USERS = ROOT / "data" / "first_prompt.txt"
+DEFAULT_DATASET = "allenai/Dolci-Instruct-SFT-No-Tools"
 DEFAULT_CHOSEN_MODEL = ROOT / "models" / "Qwen3.5-2B"
 DEFAULT_REJECTED_MODEL = "Qwen/Qwen3-0.6B"
-DEFAULT_CHOSEN_SYSTEM = ROOT / "prompts" / "qwen3_5_2b_system.txt"
-DEFAULT_REJECTED_SYSTEM = ROOT / "prompts" / "qwen3_0_6b_system.txt"
+DEFAULT_CHOSEN_SYSTEM = ROOT / "generation_prompts" / "chosen_system.txt"
+DEFAULT_REJECTED_SYSTEM = ROOT / "generation_prompts" / "rejected_system.txt"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--users", type=Path, default=DEFAULT_USERS,
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--users", type=Path,
                         help=".txt prompt, .jsonl with user/prompt fields, or parquet with a user/prompt column")
+    source.add_argument("--dataset", default=None,
+                        help=f"HF dataset with a messages field (example: {DEFAULT_DATASET})")
+    parser.add_argument("--split", default="train", help="Dataset split used with --dataset")
+    parser.add_argument("--num-prompts", type=int, default=None,
+                        help="Number of user prompts to process; required with --dataset")
+    parser.add_argument("--dataset-shuffle-buffer", type=int, default=10000,
+                        help="Streaming shuffle buffer size when reading --dataset")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Seed for streaming dataset shuffle")
     parser.add_argument("--chosen-system-prompt", type=Path,
                         default=DEFAULT_CHOSEN_SYSTEM,
                         help="System prompt used only to generate the chosen model's response")
@@ -83,6 +94,35 @@ def read_user_prompts(path: Path) -> list[str]:
     raise ValueError("--users must be a .txt, .jsonl, or .parquet file.")
 
 
+def read_dataset_prompts(dataset_id: str, split: str, count: int,
+                         shuffle_buffer: int, seed: int) -> list[str]:
+    from datasets import load_dataset
+
+    stream = load_dataset(dataset_id, split=split, streaming=True)
+    stream = stream.shuffle(seed=seed, buffer_size=shuffle_buffer)
+    prompts = []
+    for row in stream:
+        first_user = next(
+            (
+                message.get("content", "")
+                for message in row.get("messages", [])
+                if message.get("role") == "user"
+                and isinstance(message.get("content"), str)
+                and message["content"].strip()
+            ),
+            None,
+        )
+        if first_user is not None:
+            prompts.append(first_user.strip())
+        if len(prompts) == count:
+            break
+    if len(prompts) != count:
+        raise ValueError(
+            f"Requested {count} prompts from {dataset_id}/{split}, but found only {len(prompts)}."
+        )
+    return prompts
+
+
 def generate_for_model(model: str, users: list[str], system_prompt: str,
                        args: argparse.Namespace) -> list[str]:
     from vllm import LLM, SamplingParams
@@ -137,7 +177,29 @@ def generate_for_model(model: str, users: list[str], system_prompt: str,
 
 def main() -> None:
     args = parse_args()
-    users = read_user_prompts(args.users)
+    if args.num_prompts is not None and args.num_prompts < 1:
+        raise ValueError("--num-prompts must be at least 1.")
+    if args.dataset:
+        if args.num_prompts is None:
+            raise ValueError("--num-prompts is required when using --dataset.")
+        if args.dataset_shuffle_buffer < 1:
+            raise ValueError("--dataset-shuffle-buffer must be at least 1.")
+        users = read_dataset_prompts(
+            args.dataset,
+            args.split,
+            args.num_prompts,
+            args.dataset_shuffle_buffer,
+            args.seed,
+        )
+    else:
+        users = read_user_prompts(args.users or DEFAULT_USERS)
+        if args.num_prompts is not None:
+            if args.num_prompts > len(users):
+                raise ValueError(
+                    f"Requested {args.num_prompts} prompts, but {args.users or DEFAULT_USERS} "
+                    f"contains only {len(users)}."
+                )
+            users = users[:args.num_prompts]
     chosen_system = args.chosen_system_prompt.read_text(encoding="utf-8").strip()
     rejected_system = args.rejected_system_prompt.read_text(encoding="utf-8").strip()
     if not chosen_system:
@@ -147,6 +209,7 @@ def main() -> None:
     if args.batch_size < 1:
         raise ValueError("--batch-size must be at least 1.")
 
+    print(f"Generating {len(users)} response pairs with batch size {args.batch_size}.", flush=True)
     # Each model gets its own system prompt; both receive the same ordered users.
     print(f"Generating chosen responses with {args.chosen_model} ...", flush=True)
     chosen = generate_for_model(args.chosen_model, users, chosen_system, args)

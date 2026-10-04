@@ -7,15 +7,29 @@ non-thinking mode, with a separate generation system prompt for each model. It
 frees the GPU between models and writes only `user`, `chosen`, and `rejected` to
 `data/user_answer_pairs.parquet`. The chosen model defaults to the downloaded
 Qwen3.5-2B; the rejected model defaults to `Qwen/Qwen3-0.6B`. Both model and
-system prompt paths can be overridden.
+system prompt paths can be overridden. `--batch-size` controls how many user
+prompts are sent to vLLM per call; `--num-prompts` controls how many pairs are
+generated. Each input user prompt produces one chosen/rejected pair.
 
 ```bash
-python generate_preference_pairs.py --users data/first_prompt.txt --chosen-system-prompt prompts/qwen3_5_2b_system.txt --rejected-system-prompt prompts/qwen3_0_6b_system.txt --chosen-model models/Qwen3.5-2B --rejected-model Qwen/Qwen3-0.6B
+python generate_preference_pairs.py --users data/first_prompt.txt --num-prompts 1 --batch-size 1 --chosen-system-prompt generation_prompts/chosen_system.txt --rejected-system-prompt generation_prompts/rejected_system.txt --chosen-model models/Qwen3.5-2B --rejected-model Qwen/Qwen3-0.6B
 ```
 
 The two generation system prompts are independent, while both model runs receive
-the same ordered user prompts. Override either system prompt or the user prompt
-input path as needed.
+the same ordered user prompts. Editable example prompts are in
+`generation_prompts/chosen_system.txt` and
+`generation_prompts/rejected_system.txt`; they currently contain the same plain,
+general-purpose instruction. Edit them independently or override either path.
+
+To stream a requested number of prompts from the original dataset, use:
+
+```bash
+python generate_preference_pairs.py --dataset allenai/Dolci-Instruct-SFT-No-Tools --split train --num-prompts 1000 --batch-size 4
+```
+
+Streaming input is shuffled with a 10,000-row buffer by default; change that
+with `--dataset-shuffle-buffer`. With file input, `--num-prompts` selects the
+first N prompts, and it cannot exceed the number available in that file.
 
 `shuffle_sys_prompt.py` reads every non-empty `.txt` file recursively from the
 specified directory. It duplicates each source pair once per system prompt,
