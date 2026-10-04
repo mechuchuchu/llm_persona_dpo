@@ -4,6 +4,7 @@
 import argparse
 import gc
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import pyarrow as pa
@@ -171,7 +172,8 @@ def _fit_chat_context(tokenizer, system_prompt: str, user_prompt: str,
             add_generation_prompt=True,
             **CHAT_TEMPLATE_KWARGS,
         )
-        return len(rendered)
+        token_ids = rendered["input_ids"] if isinstance(rendered, Mapping) else rendered
+        return len(token_ids)
 
     full_messages = [
         {"role": "system", "content": system_prompt},
