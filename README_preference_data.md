@@ -11,6 +11,13 @@ system prompt paths can be overridden. `--batch-size` controls how many user
 prompts are sent to vLLM per call; `--num-prompts` controls how many pairs are
 generated. Each input user prompt produces one chosen/rejected pair.
 
+During generation, a progress bar shows completed prompts for each model. The
+script counts tokens after applying the model's chat template and reserves
+`--max-new-tokens` within `--max-model-len`. If a prompt is too long, it trims
+the middle of the system prompt while keeping its beginning and end, then trims
+the beginning of the user prompt if needed. The script reports how many rows
+were shortened.
+
 ```bash
 python generate_preference_pairs.py --users data/first_prompt.txt --num-prompts 1 --batch-size 1 --chosen-system-prompt generation_prompts/chosen_system.txt --rejected-system-prompt generation_prompts/rejected_system.txt --chosen-model models/Qwen3.5-2B --rejected-model Qwen/Qwen3-0.6B
 ```

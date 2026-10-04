@@ -17,6 +17,9 @@ DEFAULT_CHOSEN_MODEL = "Qwen/Qwen3.5-2B"    #ROOT / "models" / "Qwen3.5-2B"
 DEFAULT_REJECTED_MODEL = "Qwen/Qwen3-0.6B"
 DEFAULT_CHOSEN_SYSTEM = ROOT / "generation_prompts" / "chosen_system.txt"
 DEFAULT_REJECTED_SYSTEM = ROOT / "generation_prompts" / "rejected_system.txt"
+CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
+SYSTEM_TRUNCATION_MARKER = "[Middle of the system prompt omitted to fit the model context.]"
+USER_TRUNCATION_MARKER = "[Earlier part of the user prompt omitted to fit the model context.]"
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,9 +126,118 @@ def read_dataset_prompts(dataset_id: str, split: str, count: int,
     return prompts
 
 
+def _truncate_tokens(tokenizer, token_ids: list[int], keep: int, original: str,
+                     marker: str, keep_ends: bool) -> str:
+    if keep >= len(token_ids):
+        return original
+    if keep <= 0:
+        return marker
+    if keep_ends:
+        prefix_count = (keep + 1) // 2
+        suffix_count = keep // 2
+        prefix = tokenizer.decode(token_ids[:prefix_count], skip_special_tokens=False)
+        suffix = (
+            tokenizer.decode(token_ids[-suffix_count:], skip_special_tokens=False)
+            if suffix_count else ""
+        )
+        return f"{prefix}\n{marker}\n{suffix}"
+    suffix = tokenizer.decode(token_ids[-keep:], skip_special_tokens=False)
+    return f"{marker}\n{suffix}"
+
+
+def _fit_chat_context(tokenizer, system_prompt: str, user_prompt: str,
+                      prompt_token_budget: int) -> tuple[list[dict[str, str]], bool, bool]:
+    system_tokens = tokenizer.encode(system_prompt, add_special_tokens=False)
+    user_tokens = tokenizer.encode(user_prompt, add_special_tokens=False)
+
+    def make_messages(system_keep: int, user_keep: int) -> list[dict[str, str]]:
+        fitted_system = _truncate_tokens(
+            tokenizer, system_tokens, system_keep, system_prompt,
+            SYSTEM_TRUNCATION_MARKER, keep_ends=True
+        )
+        fitted_user = _truncate_tokens(
+            tokenizer, user_tokens, user_keep, user_prompt,
+            USER_TRUNCATION_MARKER, keep_ends=False
+        )
+        return [
+            {"role": "system", "content": fitted_system},
+            {"role": "user", "content": fitted_user},
+        ]
+
+    def token_count(messages: list[dict[str, str]]) -> int:
+        rendered = tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            **CHAT_TEMPLATE_KWARGS,
+        )
+        return len(rendered)
+
+    full_messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    if token_count(full_messages) <= prompt_token_budget:
+        return full_messages, False, False
+
+    # Keep a useful tail of the user prompt even when the system prompt itself
+    # needs shortening. For shorter prompts, keep the complete user message.
+    minimum_user_tokens = min(128, len(user_tokens))
+    if token_count(make_messages(0, minimum_user_tokens)) > prompt_token_budget:
+        raise ValueError(
+            "The model context is too small for the chat template and the minimum "
+            "system/user prompt markers. Increase --max-model-len or reduce "
+            "--max-new-tokens."
+        )
+
+    # First preserve the full system prompt and trim the user prompt. If even a
+    # minimal user message does not fit, shorten the system prompt from its
+    # middle while retaining its beginning and ending instructions.
+    if token_count(make_messages(len(system_tokens), minimum_user_tokens)) <= prompt_token_budget:
+        system_keep = len(system_tokens)
+    else:
+        low, high = 0, len(system_tokens)
+        system_keep = 0
+        while low <= high:
+            candidate = (low + high) // 2
+            if token_count(make_messages(candidate, minimum_user_tokens)) <= prompt_token_budget:
+                system_keep = candidate
+                low = candidate + 1
+            else:
+                high = candidate - 1
+        while token_count(make_messages(system_keep, minimum_user_tokens)) > prompt_token_budget:
+            system_keep -= 1
+
+    low, high = minimum_user_tokens, len(user_tokens)
+    user_keep = minimum_user_tokens
+    while low <= high:
+        candidate = (low + high) // 2
+        if token_count(make_messages(system_keep, candidate)) <= prompt_token_budget:
+            user_keep = candidate
+            low = candidate + 1
+        else:
+            high = candidate - 1
+    messages = make_messages(system_keep, user_keep)
+    while token_count(messages) > prompt_token_budget and user_keep > minimum_user_tokens:
+        user_keep -= 1
+        messages = make_messages(system_keep, user_keep)
+    if token_count(messages) > prompt_token_budget:
+        raise RuntimeError("Could not fit a prompt within the configured model context length.")
+
+    return messages, user_keep < len(user_tokens), system_keep < len(system_tokens)
+
+
 def generate_for_model(model: str, users: list[str], system_prompt: str,
                        args: argparse.Namespace) -> list[str]:
     from vllm import LLM, SamplingParams
+    from tqdm.auto import tqdm
+
+    prompt_token_budget = args.max_model_len - args.max_new_tokens
+    if prompt_token_budget < 1:
+        raise ValueError(
+            "--max-model-len must be greater than --max-new-tokens so the prompt "
+            "and generated response can fit in the model context."
+        )
 
     engine = LLM(
         model=model,
@@ -142,28 +254,41 @@ def generate_for_model(model: str, users: list[str], system_prompt: str,
         top_k=args.top_k,
         max_tokens=args.max_new_tokens,
     )
+    progress = None
+    truncated_user_count = 0
+    truncated_system_count = 0
     try:
+        tokenizer = engine.get_tokenizer()
+        progress = tqdm(
+            total=len(users),
+            desc=f"Generating {model.split('/')[-1]}",
+            unit="prompt",
+        )
         for start in range(0, len(users), args.batch_size):
             batch = users[start:start + args.batch_size]
-            conversations = [
-                [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ]
-                for user_prompt in batch
-            ]
+            conversations = []
+            for user_prompt in batch:
+                messages, user_truncated, system_truncated = _fit_chat_context(
+                    tokenizer, system_prompt, user_prompt, prompt_token_budget
+                )
+                conversations.append(messages)
+                truncated_user_count += user_truncated
+                truncated_system_count += system_truncated
             outputs = engine.chat(
                 conversations,
                 sampling,
                 use_tqdm=False,
-                chat_template_kwargs={"enable_thinking": False},
+                chat_template_kwargs=CHAT_TEMPLATE_KWARGS,
             )
             if len(outputs) != len(batch):
                 raise RuntimeError(
                     f"{model} returned {len(outputs)} outputs for a batch of {len(batch)} prompts."
                 )
             responses.extend(output.outputs[0].text for output in outputs)
+            progress.update(len(batch))
     finally:
+        if progress is not None:
+            progress.close()
         del engine
         gc.collect()
         try:
@@ -172,6 +297,13 @@ def generate_for_model(model: str, users: list[str], system_prompt: str,
             torch.cuda.empty_cache()
         except Exception:
             pass
+    if truncated_user_count or truncated_system_count:
+        print(
+            f"{model}: shortened prompts for context length in "
+            f"{truncated_user_count} user row(s) and "
+            f"{truncated_system_count} system prompt row(s).",
+            flush=True,
+        )
     return responses
 
 
