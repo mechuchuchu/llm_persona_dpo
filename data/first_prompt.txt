@@ -1,0 +1,7 @@
+A real estate agent, Emma, encourages financial literacy among her clients by directing them to post-purchase classes. She has observed that attending these classes significantly impacts the clients' ability to manage their new mortgage efficiently. Over the past year, Emma has sold 20 houses and noted the following data:
+
+1. The average mortgage amount for these 20 houses was $350,000. The standard deviation of the mortgage amounts was $50,000. Assuming the mortgage amounts are normally distributed, calculate the probability that a randomly selected mortgage amount from these 20 houses is between $300,000 and $400,000.
+
+2. Out of the clients who attended the financial literacy classes, 85% managed to reduce their monthly expenses by an average of $200 within the first six months. Suppose 15 clients attended the classes. Assuming that the reduction in monthly expenses follows a normal distribution with a standard deviation of $50, what is the probability that a randomly selected client from those who attended the classes will reduce their expenses by more than $250 per month?
+
+Note: Use appropriate statistical and probabilistic methods to solve the above sub-problems.

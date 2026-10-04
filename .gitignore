@@ -1,0 +1,18 @@
+# Downloaded model weights and local Hugging Face cache
+/models/
+/.hf_home/
+**/.cache/
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+
+# Generated inference and preference data
+/data/responses.json
+/data/*.parquet
+
+# Python and notebook artifacts
+__pycache__/
+*.py[cod]
+**/.ipynb_checkpoints/

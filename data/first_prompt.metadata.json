@@ -1,0 +1,7 @@
+{
+  "dataset": "allenai/Dolci-Instruct-SFT-No-Tools",
+  "split": "train",
+  "row_offset": 0,
+  "id": "personas_math_26ts6mqd3ipqzum75d8qf56e",
+  "source": "allenai/olmo-3-instruct-sft-no-tools-final-tagged-topic-ade-keyword-filtered-no-wildchat-reasoning"
+}
