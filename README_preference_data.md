@@ -1,15 +1,27 @@
 # Preference data preparation
 
-These scripts are prepared but have not been run.
+The preference-pair generator accepts text, JSONL, parquet, or streamed dataset
+prompts and can write generated pairs as Parquet or JSONL.
 
 `generate_preference_pairs.py` sends the same user prompts to both models in
 non-thinking mode, with a separate generation system prompt for each model. It
-frees the GPU between models and writes only `user`, `chosen`, and `rejected` to
-`data/user_answer_pairs.parquet`. The chosen model defaults to the downloaded
-Qwen3.5-2B; the rejected model defaults to `Qwen/Qwen3-0.6B`. Both model and
-system prompt paths can be overridden. `--batch-size` controls how many user
+frees the GPU between models and writes only `user`, `chosen`, and `rejected`.
+The default output is `data/user_answer_pairs.parquet`. The chosen model
+defaults to the downloaded Qwen3.5-2B; the rejected model defaults to
+`Qwen/Qwen3-0.6B`. Both model and system prompt paths can be overridden.
+`--batch-size` controls how many user
 prompts are sent to vLLM per call; `--num-prompts` controls how many pairs are
 generated. Each input user prompt produces one chosen/rejected pair.
+
+For custom JSONL prompts, use one object per line with a non-empty `user` or
+`prompt` field. Generated rows can also be written as JSONL, with `user`,
+`chosen`, and `rejected` fields on each line. `--output-format jsonl` selects
+that format; it is also inferred when `--output` ends in `.jsonl`. Without an
+explicit output path, JSONL output goes to `data/user_answer_pairs.jsonl`.
+
+```bash
+python generate_preference_pairs.py --users data/custom_prompts.jsonl --output-format jsonl --output data/custom_answer_pairs.jsonl
+```
 
 During generation, a progress bar shows completed prompts for each model. The
 script counts tokens after applying the model's chat template and reserves

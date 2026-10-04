@@ -47,8 +47,10 @@ def parse_args() -> argparse.Namespace:
                         help="Chosen model path or Hugging Face model ID (default: local Qwen3.5-2B)")
     parser.add_argument("--rejected-model", default=DEFAULT_REJECTED_MODEL,
                         help="Rejected model path or Hugging Face model ID (default: Qwen/Qwen3-0.6B)")
-    parser.add_argument("--output", type=Path,
-                        default=ROOT / "data" / "user_answer_pairs.parquet")
+    parser.add_argument("--output", type=Path, default=None,
+                        help="Output file; defaults to data/user_answer_pairs with the selected format suffix")
+    parser.add_argument("--output-format", choices=("parquet", "jsonl"), default=None,
+                        help="Output format (default: infer from .jsonl suffix, otherwise parquet)")
     parser.add_argument("--max-model-len", type=int, default=4096)
     parser.add_argument("--max-new-tokens", type=int, default=1536)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -57,6 +59,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-p", type=float, default=0.8)
     parser.add_argument("--top-k", type=int, default=20)
     return parser.parse_args()
+
+
+def resolve_output(args: argparse.Namespace) -> tuple[Path, str]:
+    output_format = args.output_format
+    if output_format is None:
+        output_format = (
+            "jsonl"
+            if args.output and args.output.suffix.lower() == ".jsonl"
+            else "parquet"
+        )
+
+    output = args.output
+    if output is None:
+        suffix = ".jsonl" if output_format == "jsonl" else ".parquet"
+        output = ROOT / "data" / f"user_answer_pairs{suffix}"
+    else:
+        suffix_formats = {".jsonl": "jsonl", ".parquet": "parquet"}
+        suffix_format = suffix_formats.get(output.suffix.lower())
+        if suffix_format is not None and suffix_format != output_format:
+            raise ValueError(
+                f"Output path {output} has a {suffix_format} suffix, but "
+                f"--output-format is {output_format}."
+            )
+
+    return output, output_format
 
 
 def _get_user_value(record: dict, line_number: int) -> str:
@@ -342,6 +369,7 @@ def main() -> None:
         raise ValueError(f"Rejected system prompt is empty: {args.rejected_system_prompt}")
     if args.batch_size < 1:
         raise ValueError("--batch-size must be at least 1.")
+    output, output_format = resolve_output(args)
 
     print(f"Generating {len(users)} response pairs with batch size {args.batch_size}.", flush=True)
     # Each model gets its own system prompt; both receive the same ordered users.
@@ -350,14 +378,28 @@ def main() -> None:
     print(f"Generating rejected responses with {args.rejected_model} ...", flush=True)
     rejected = generate_for_model(args.rejected_model, users, rejected_system, args)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    table = pa.table({
-        "user": pa.array(users, type=pa.string()),
-        "chosen": pa.array(chosen, type=pa.string()),
-        "rejected": pa.array(rejected, type=pa.string()),
-    })
-    pq.write_table(table, args.output, compression="zstd")
-    print(f"Saved {len(users)} user/chosen/rejected rows to {args.output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output_format == "jsonl":
+        with output.open("w", encoding="utf-8") as destination:
+            for user, chosen_response, rejected_response in zip(users, chosen, rejected):
+                json.dump(
+                    {
+                        "user": user,
+                        "chosen": chosen_response,
+                        "rejected": rejected_response,
+                    },
+                    destination,
+                    ensure_ascii=False,
+                )
+                destination.write("\n")
+    else:
+        table = pa.table({
+            "user": pa.array(users, type=pa.string()),
+            "chosen": pa.array(chosen, type=pa.string()),
+            "rejected": pa.array(rejected, type=pa.string()),
+        })
+        pq.write_table(table, output, compression="zstd")
+    print(f"Saved {len(users)} user/chosen/rejected rows to {output}")
 
 
 if __name__ == "__main__":
