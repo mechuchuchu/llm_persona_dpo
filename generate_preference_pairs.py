@@ -13,7 +13,7 @@ import pyarrow.parquet as pq
 ROOT = Path(__file__).resolve().parent
 DEFAULT_USERS = ROOT / "data" / "first_prompt.txt"
 DEFAULT_DATASET = "allenai/Dolci-Instruct-SFT-No-Tools"
-DEFAULT_CHOSEN_MODEL = ROOT / "models" / "Qwen3.5-2B"
+DEFAULT_CHOSEN_MODEL = "Qwen/Qwen3.5-2B"    #ROOT / "models" / "Qwen3.5-2B"
 DEFAULT_REJECTED_MODEL = "Qwen/Qwen3-0.6B"
 DEFAULT_CHOSEN_SYSTEM = ROOT / "generation_prompts" / "chosen_system.txt"
 DEFAULT_REJECTED_SYSTEM = ROOT / "generation_prompts" / "rejected_system.txt"
